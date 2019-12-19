@@ -33,6 +33,10 @@ import "time"
 import "compress/gzip"
 import "errors"
 
+var extractTime = time.Now()
+
+const extractSrc = "xmlstats.com"
+
 // Configuration variables including URL, BEARERTOKEN and USERAGENT are pre-requisites and should be set as
 // Environment Variables
 //	XMLSTATS_URL =  "https://erikberg.com/"
@@ -60,6 +64,8 @@ func (xmlt *XmlstatsTime) UnmarshalJSON(bs []byte) error {
 // Events ... set of events provided by xmlstats
 type Events struct {
 	// unmarshall side effect of time.Time not parsing RFC3339
+	Extracted     time.Time `json:"extract_time"`
+	ExtractedSrc  string    `json:"extract_src"`
 	EventsDate    time.Time `json:"events_date"`
 	Count         int       `json:"count"`
 	Event         []Event   `json:"event" binding:"required"`
@@ -68,17 +74,19 @@ type Events struct {
 
 // Event ... specific event
 type Event struct {
-	EventID          string `json:"event_id" binding:"required"`
-	EventStatus      string `json:"event_status"`
-	Sport            string `json:"sport"`
-	SeasonType       string `json:"season_type"`
-	AwayTeam         Team   `json:"away_team"`
-	HomeTeam         Team   `json:"home_team"`
-	SiteInfo         Site   `json:"site"`
-	AwayPeriodScores []int  `json:"away_period_scores,omitempty"`
-	HomePeriodScores []int  `json:"home_period_scores,omitempty"`
-	AwayScore        int    `json:"away_points_scored"`
-	HomeScore        int    `json:"home_points_scored"`
+	Extracted        time.Time `json:"extract_time"`
+	ExtractedSrc     string    `json:"extract_src"`
+	EventID          string    `json:"event_id" binding:"required"`
+	EventStatus      string    `json:"event_status"`
+	Sport            string    `json:"sport"`
+	SeasonType       string    `json:"season_type"`
+	AwayTeam         Team      `json:"away_team"`
+	HomeTeam         Team      `json:"home_team"`
+	SiteInfo         Site      `json:"site"`
+	AwayPeriodScores []int     `json:"away_period_scores,omitempty"`
+	HomePeriodScores []int     `json:"home_period_scores,omitempty"`
+	AwayScore        int       `json:"away_points_scored"`
+	HomeScore        int       `json:"home_points_scored"`
 }
 
 // Team ... specific team
@@ -86,29 +94,65 @@ type Event struct {
 //"conference":"West","division":"Southwest","site_name":"FedExForum","city":"Memphis","state":"Tennessee",
 //"full_name":"Memphis Grizzlies"
 type Team struct {
-	TeamID       string `json:"team_id" binding:"required"`
-	Abbreviation string `json:"abbreviation,omitempty"`
-	Active       bool   `json:"active,omitempty"`
-	FName        string `json:"first_name,omitempty"`
-	LName        string `json:"last_name,omitempty"`
-	Conference   string `json:"conference,omitempty"`
-	Division     string `json:"division,omitempty"`
-	SiteName     string `json:"site_name,omitempty"`
-	City         string `json:"city,omitempty"`
-	State        string `json:"state,omitempty"`
-	FullName     string `json:"full_name,omitempty"`
+	Extracted    time.Time `json:"extract_time"`
+	ExtractedSrc string    `json:"extract_src"`
+	TeamID       string    `json:"team_id" binding:"required"`
+	Abbreviation string    `json:"abbreviation,omitempty"`
+	Active       bool      `json:"active,omitempty"`
+	FName        string    `json:"first_name,omitempty"`
+	LName        string    `json:"last_name,omitempty"`
+	Conference   string    `json:"conference,omitempty"`
+	Division     string    `json:"division,omitempty"`
+	SiteName     string    `json:"site_name,omitempty"`
+	City         string    `json:"city,omitempty"`
+	State        string    `json:"state,omitempty"`
+	FullName     string    `json:"full_name,omitempty"`
 }
 
 // Site .. details of site where game was played
 //"site":{"capacity":19599,"surface":"Hardwood","name":"Chesapeake Energy Arena","city":"Oklahoma City",
 //"state":"Oklahoma"}
 type Site struct {
-	SiteID   string `json:"site_id"`
-	Capacity int    `json:"capacity,omitempty"`
-	Surface  string `json:"surface,omitempty"`
-	Name     string `json:"name,omitempty"`
-	City     string `json:"city,omitempty"`
-	State    string `json:"state,omitempty"`
+	Extracted    time.Time `json:"extract_time"`
+	ExtractedSrc string    `json:"extract_src"`
+	SiteID       string    `json:"site_id"`
+	Capacity     int       `json:"capacity,omitempty"`
+	Surface      string    `json:"surface,omitempty"`
+	Name         string    `json:"name,omitempty"`
+	City         string    `json:"city,omitempty"`
+	State        string    `json:"state,omitempty"`
+}
+
+// Roster ... current roster of team
+type Roster struct {
+	Extracted    time.Time `json:"extract_time"`
+	ExtractedSrc string    `json:"extract_src"`
+	Team         Team      `json:"team"`
+	Member       []Player  `json:"players"`
+}
+
+// Player ... Player, part of roster and nbadraft
+type Player struct {
+	Extracted       time.Time `json:"extract_time"`
+	ExtractedSrc    string    `json:"extract_src"`
+	UPID            string    `json:"universal_player_id"`
+	LName           string    `json:"last_name"`
+	FNAME           string    `json:"first_name"`
+	DisplayName     string    `json:"display_name,omitempty"`
+	BirthDate       string    `json:"birthdate,omitempty"`
+	Age             int       `json:"age,omitempty"`
+	BirthPlace      string    `json:"birthplace,omitempty"`
+	HeightIN        int       `json:"height_in,omitempty"`
+	HeightCM        float32   `json:"height_cm,omitempty"`
+	HeightM         float32   `json:"height_m,omitempty"`
+	HeightFormatted string    `json:"height_formatted,omitempty"`
+	WeightLB        int       `json:"weight_lb,omitempty"`
+	WeightKG        float32   `json:"weight_kg,omitempty"`
+	Position        string    `json:"position,omitempty"`
+	UniNumber       int       `json:"uniform_number,omitempty"`
+	Bats            string    `json:"bats,omitempty"`
+	Throws          string    `json:"throws,omitempty"`
+	RosterStatus    string    `json:"roster_status,omitempty"`
 }
 
 func getRequest(url string) (*http.Request, error) {
@@ -174,8 +218,8 @@ func doGet(baseurl string, query string) (io.Reader, error) {
 			return nil, err
 		}
 		resp.Body = gzreadCloser{zr, resp.Body}
-		return resp.Body, nil	
-	} 
+		return resp.Body, nil
+	}
 	return resp.Body, nil
 
 }
@@ -193,7 +237,26 @@ func decodeEvents(body io.Reader) (*Events, error) {
 	if err := json.NewDecoder(body).Decode(&ev); err != nil {
 		return nil, err
 	}
+	//setup provenance
+	ev.Extracted = extractTime
+	ev.ExtractedSrc = extractSrc
+	//TODO: dig deep into nested structure to set time/src
 	return &ev, nil
+}
+
+func decodeRoster(body io.Reader) (*Roster, error) {
+	var roster Roster
+	// Decode the response into our Events struct
+	if err := json.NewDecoder(body).Decode(&roster); err != nil {
+		return nil, err
+	}
+	//setup provenance
+	roster.Extracted = extractTime
+	roster.ExtractedSrc = extractSrc
+	//TODO: dig deep into nested structure to set time/src
+	//TODO: define UPID - universal playerID logic
+	return &roster, nil
+
 }
 
 type gzreadCloser struct {
@@ -214,12 +277,23 @@ func main() {
 		fmt.Println("XMLSTATS_URL not found, should include your website or email credential")
 		baseurl = "https://erikberg.com/"
 	}
+	// test fetching BoxScores
 	body, err := doGet(baseurl, "events.json?date=20130131&sport=nba")
 	if (err) != nil {
 		fmt.Printf("error caught: %s", err)
 		return
-	} 
+	}
 	events, _ := decodeEvents(body)
 	fmt.Printf(fmt.Sprintf("Events: %#v\n", events))
+
+	// test fetching roster
+	rbody, rerr := doGet(baseurl, "nba/roster/oklahoma-city-thunder.json")
+	if (rerr) != nil {
+		fmt.Printf("error caught: %s", rerr)
+		return
+	}
+	roster, _ := decodeRoster(rbody)
+	fmt.Printf(fmt.Sprintf("Roster: %#v\n", roster))
+	//
 	fmt.Println("Terminating the application normally...")
 }
