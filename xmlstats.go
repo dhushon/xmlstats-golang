@@ -31,6 +31,7 @@ import "encoding/json"
 import "os"
 import "time"
 import "compress/gzip"
+import "errors"
 
 // Configuration variables including URL, BEARERTOKEN and USERAGENT are pre-requisites and should be set as
 // Environment Variables
@@ -110,7 +111,7 @@ type Site struct {
 	State    string `json:"state,omitempty"`
 }
 
-func getRequestHeader(url string) (*http.Request, error) {
+func getRequest(url string) (*http.Request, error) {
 	// Create a new request using http
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -139,6 +140,53 @@ func getRequestHeader(url string) (*http.Request, error) {
 	return req, err
 }
 
+func doGet(baseurl string, query string) (io.Reader, error) {
+	req, err := getRequest(baseurl + query)
+	if err != nil {
+		fmt.Printf("The HTTP request header building failed with error %s\n", err)
+		return nil, err
+	}
+
+	// Send req using http Client
+	client := &http.Client{}
+	fmt.Println("doing HTTP GET")
+	resp, err := client.Do(req)
+
+	// Ensure we close the response body in the event of a non-nil resp
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	// received an error on the HTTP request
+	if err != nil {
+		defer resp.Body.Close()
+		fmt.Printf("The HTTP request header building failed with error %s\n", err)
+		return nil, err
+	} else if resp.StatusCode != 200 {
+		data, _ := ioutil.ReadAll(resp.Body)
+		fmt.Printf("The HTTP request header building failed with error %s : %s\n", resp.Status, data)
+		return nil, errors.New(string(data))
+	} else if resp.Header.Get("Content-Encoding") == "gzip" {
+		fmt.Println("parsing HTTP GZIP-response")
+		resp.Header.Del("Content-Length")
+		zr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			fmt.Printf("Error in gzip response decoding %s\n", err)
+			return nil, err
+		}
+		resp.Body = gzreadCloser{zr, resp.Body}
+		return resp.Body, nil	
+	} 
+	return resp.Body, nil
+
+}
+
+//decodeEvents .... decode into standard Event structure
+//unmarshall side effect of time.Time not parsing RFC3339
+//The fmt.Println invokes the Time's .String() function that returns the time in the following format:
+//"2006-01-02 15:04:05.999999999 -0700 MST"
+//Which as you see contains both the timezone offset and the timezone name.
+//In your our case there is no timezone name known for the time, so it outputs the offset twice.
+// if we are using XmlstatsTime, we need to convert to stringify fmt.Println(time.Time(events.EventsDate))
 func decodeEvents(body io.Reader) (*Events, error) {
 	var ev Events
 	// Decode the response into our Events struct
@@ -166,51 +214,12 @@ func main() {
 		fmt.Println("XMLSTATS_URL not found, should include your website or email credential")
 		baseurl = "https://erikberg.com/"
 	}
-	req, err := getRequestHeader(baseurl + "events.json?date=20130131&sport=nba")
-	if err != nil {
-		fmt.Printf("The HTTP request header building failed with error %s\n", err)
+	body, err := doGet(baseurl, "events.json?date=20130131&sport=nba")
+	if (err) != nil {
+		fmt.Printf("error caught: %s", err)
 		return
-	}
-
-	// Send req using http Client
-	client := &http.Client{}
-	fmt.Println("doing HTTP GET")
-	resp, err := client.Do(req)
-
-	// Ensure we close the response body in the event of a non-nil resp
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-	// received an error on the HTTP request
-	if err != nil {
-		defer resp.Body.Close()
-		fmt.Printf("The HTTP request header building failed with error %s\n", err)
-		return
-	} else if resp.StatusCode != 200 {
-		data, _ := ioutil.ReadAll(resp.Body)
-		//return nil, errors.New(string(data))
-		fmt.Printf("The HTTP request header building failed with error %s : %s\n", resp.Status, data)
-	} else if resp.Header.Get("Content-Encoding") == "gzip" {
-		fmt.Println("parsing HTTP GZIP-response")
-		resp.Header.Del("Content-Length")
-		zr, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			fmt.Printf("Error in gzip response decoding %s\n", err)
-			//return nil, err
-		}
-		resp.Body = gzreadCloser{zr, resp.Body}
-		events, _ := decodeEvents(resp.Body)
-		fmt.Printf(fmt.Sprintf("Events: %#v\n", events))
-	} else {
-		fmt.Println("parsing HTTP nonGZIP-response")
-		events, _ := decodeEvents(resp.Body)
-		// unmarshall side effect of time.Time not parsing RFC3339
-		//The fmt.Println invokes the Time's .String() function that returns the time in the following format:
-		//"2006-01-02 15:04:05.999999999 -0700 MST"
-		//Which as you see contains both the timezone offset and the timezone name.
-		//In your our case there is no timezone name known for the time, so it outputs the offset twice.
-		// if we are using XmlstatsTime, we need to convert to stringify fmt.Println(time.Time(events.EventsDate))
-		fmt.Println(fmt.Sprintf("Events: %#v", events))
-	}
-	fmt.Println("Terminating the application...")
+	} 
+	events, _ := decodeEvents(body)
+	fmt.Printf(fmt.Sprintf("Events: %#v\n", events))
+	fmt.Println("Terminating the application normally...")
 }
